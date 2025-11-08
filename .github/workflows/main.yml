@@ -1,0 +1,117 @@
+name: Try Build, Test & Deploy (.NET)
+
+on:
+  workflow_dispatch:
+  # Trigger on Pull Request (build/test only)
+  # pull_request:
+  #   branches:
+  #     - master
+  #     - dev
+
+  # Trigger on Push to master (build + deploy)
+  # push:
+  #   branches:
+  #     - master
+  #     - dev
+
+jobs:
+  build:
+    # if: false
+    name: Build & Test
+    runs-on: windows-latest
+
+    env:
+      SOLUTION_PATH: ${{ github.workspace }}
+      ASPNET_PROJECT_PATH: ${{ github.workspace }}\WebAPIGit
+      PUBLISH_DIR: ${{ github.workspace }}\publish
+
+    steps:
+      # Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Clean solution
+        run: dotnet clean
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore dependencies
+        working-directory: ${{ env.SOLUTION_PATH }}
+        run: dotnet restore
+
+      - name: Build .NET
+        working-directory: ${{ env.SOLUTION_PATH }}
+        run: dotnet build --configuration Debug --no-restore
+
+      - name: Run tests
+        working-directory: ${{ env.SOLUTION_PATH }}
+        run: dotnet test --no-build --configuration Debug --verbosity normal
+
+      # - name: Run Infrastructure tests
+      #   run: dotnet test ProjectManagement.Infrastructure.Test/ProjectManagement.Infrastructure.Test.csproj --no-build --configuration Debug --verbosity normal
+
+      # - name: Run WebAPI tests
+      #   run: dotnet test ProjectManagement.WebAPI.Tests/ProjectManagement.WebAPI.Tests.csproj --no-build --configuration Debug --verbosity normal
+
+  deploy:
+    name: Deploy to MonsterASP
+    runs-on: windows-latest
+    needs: build
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    env:
+      SOLUTION_PATH: ${{ github.workspace }}
+      ASPNET_PROJECT_PATH: ${{ github.workspace }}\WebAPIGit
+      PUBLISH_DIR: ${{ github.workspace }}\publish
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Setup .NET
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      # # Download Angular artifact from Angular repo
+      # - name: Download Angular artifact
+      #   uses: dawidd6/action-download-artifact@v3
+      #   with:
+      #     repo: Datatechgenius/project-management-frontend # Angular repo name
+      #     workflow: main.yml # Angular build workflow file
+      #     name: angular-dist # Artifact name from Angular workflow
+      #     path: angular/dist # Where to save locally
+      #     github_token: ${{ secrets.PAT_TOKEN }}
+
+      # # 3️⃣ Move Angular build output into wwwroot
+      # - name: Move Angular dist into wwwroot
+      #   run: |
+      #     Copy-Item -Path "angular\dist\*" -Destination "ProjectManagement\wwwroot" -Recurse -Force
+      #     Get-Location
+
+      - name: Publish ASP.NET project
+        working-directory: ${{ env.SOLUTION_PATH }}
+        run: dotnet publish --configuration Release --output ${{ env.PUBLISH_DIR }}
+
+      # 3️⃣ Install Web Deploy
+      - name: Install Web Deploy
+        run: |
+          choco install webdeploy -y
+          refreshenv
+
+      # 4️⃣ Deploy via WebDeploy
+      - name: Deploy to MonsterASP.NET via WebDeploy
+        uses: rasmusbuchholdt/simply-web-deploy@2.1.0
+        with:
+          website-name: ${{ secrets.WEBSITE_NAME }}
+          server-computer-name: ${{ secrets.SERVER_COMPUTER_NAME }}
+          server-username: ${{ secrets.SERVER_USERNAME }}
+          server-password: ${{ secrets.SERVER_PASSWORD }}
